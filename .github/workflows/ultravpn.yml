@@ -1,0 +1,123 @@
+name: UltraVPN-AI-System
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # اجرا هر ساعت
+  workflow_dispatch:
+
+jobs:
+  build-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: نصب ابزارهای مورد نیاز
+        run: |
+          sudo apt update
+          sudo apt install -y curl jq git wireguard unzip qrencode base64
+
+      - name: دریافت warp-sh و اجرای سریع
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/fscarmen/warp/main/menu.sh -o warp.sh
+          chmod +x warp.sh
+          sudo ./warp.sh d
+
+      - name: اجرای WarpScanner
+        run: |
+          git clone https://github.com/arshiacomplus/WarpScanner.git
+          cd WarpScanner
+          chmod +x warp-scan
+          ./warp-scan -interface wgcf -top 5 -output result.json
+
+      - name: اجرای PTech Warp Monitor و استخراج بهترین IP
+        run: |
+          git clone https://github.com/Ptechgithub/warp.git
+          cd warp
+          chmod +x warp.sh
+          ./warp.sh best > ../best_ip.txt
+
+      - name: تولید کلیدهای WireGuard
+        id: genkeys
+        run: |
+          priv=$(wg genkey)
+          pub=$(echo $priv | wg pubkey)
+          echo "priv=$priv" >> $GITHUB_OUTPUT
+          echo "pub=$pub" >> $GITHUB_OUTPUT
+
+      - name: ساخت config.json نهایی
+        id: makeconfig
+        run: |
+          ip=$(grep -oE '[0-9a-fA-F:]{3,}' best_ip.txt | head -n 1)
+          port=$(shuf -i 10000-60000 -n 1)
+          fake_sni="cloudflare.com"
+          browser_fp="safari"
+          priv="${{ steps.genkeys.outputs.priv }}"
+
+          cat <<EOF > config.json
+          {
+            "log": { "level": "info" },
+            "inbounds": [
+              {
+                "type": "socks",
+                "listen": "127.0.0.1",
+                "port": 1080
+              }
+            ],
+            "outbounds": [
+              {
+                "type": "wireguard",
+                "server": "$ip",
+                "server_port": $port,
+                "private_key": "$priv",
+                "mtu": 1280,
+                "obfuscation": {
+                  "protocol": "xhttp",
+                  "host": "$fake_sni",
+                  "path": "/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1"
+                },
+                "multipath": true,
+                "compression": "snappy",
+                "udp_fragment": true,
+                "tcp_fast_open": true,
+                "tcp_reuse_port": true,
+                "mux": {
+                  "enabled": true,
+                  "concurrency": 8
+                },
+                "tls": {
+                  "enabled": true,
+                  "utls": {
+                    "fingerprint": "$browser_fp"
+                  },
+                  "xtls": true,
+                  "vision": true,
+                  "server_name": "$fake_sni"
+                },
+                "reality": {
+                  "enabled": true,
+                  "sni": "$fake_sni"
+                }
+              }
+            ]
+          }
+          EOF
+
+      - name: تولید لینک اشتراک base64
+        run: |
+          encoded=$(base64 -w 0 config.json)
+          echo "$encoded" > config.base64.txt
+
+      - name: تولید QR Code برای Hiddify/v2rayNG
+        run: |
+          qrencode -o config-qr.png "vmess://$(base64 -w 0 config.json)"
+
+      - name: آپلود خروجی‌ها
+        uses: actions/upload-artifact@v3
+        with:
+          name: UltraVPN-Outputs
+          path: |
+            config.json
+            config.base64.txt
+            config-qr.png

@@ -2,7 +2,7 @@ name: UltraVPN-AI-System
 
 on:
   schedule:
-    - cron: '0 * * * *'  # اجرا هر ساعت
+    - cron: '0 * * * *'  # اجرای خودکار هر ساعت
   workflow_dispatch:
 
 jobs:
@@ -10,28 +10,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: دریافت سورس مخزن
         uses: actions/checkout@v3
 
-      - name: نصب ابزارهای مورد نیاز
+      - name: نصب ابزارهای موردنیاز
         run: |
           sudo apt update
           sudo apt install -y curl jq git wireguard unzip qrencode base64
 
-      - name: دریافت warp-sh و اجرای سریع
+      - name: دریافت و اجرای WARP
         run: |
           curl -fsSL https://raw.githubusercontent.com/fscarmen/warp/main/menu.sh -o warp.sh
           chmod +x warp.sh
           sudo ./warp.sh d
 
-      - name: اجرای WarpScanner
+      - name: اجرای WarpScanner برای یافتن IPهای سالم
         run: |
           git clone https://github.com/arshiacomplus/WarpScanner.git
           cd WarpScanner
           chmod +x warp-scan
           ./warp-scan -interface wgcf -top 5 -output result.json
 
-      - name: اجرای PTech Warp Monitor و استخراج بهترین IP
+      - name: یافتن بهترین IP با ابزار PTech
         run: |
           git clone https://github.com/Ptechgithub/warp.git
           cd warp
@@ -46,7 +46,8 @@ jobs:
           echo "priv=$priv" >> $GITHUB_OUTPUT
           echo "pub=$pub" >> $GITHUB_OUTPUT
 
-      - name: ساخت config.json حرفه‌ای و پیشرفته
+      - name: ساخت کانفیگ پیشرفته برای WireGuard با WARP
+        id: makeconfig
         run: |
           ip=$(grep -oE '[0-9a-fA-F:]{3,}' best_ip.txt | head -n 1)
           port=$(shuf -i 10000-60000 -n 1)
@@ -105,13 +106,13 @@ jobs:
 }
 EOF
 
-      - name: ساخت فایل base64 برای Hiddify/v2rayNG/SingBox
+      - name: تولید Base64 کانفیگ برای v2rayNG / Hiddify
         run: |
-          base64 config.json > config.base64.txt
+          base64 -w 0 config.json > config.base64.txt
 
-      - name: ساخت QR Code برای v2rayNG/Hiddify
+      - name: ساخت QR Code از کانفیگ Base64
         run: |
-          qrencode -o config-qr.png < config.base64.txt
+          qrencode -o config-qr.png "vmess://$(cat config.base64.txt)"
 
       - name: بارگذاری خروجی‌ها
         uses: actions/upload-artifact@v3
